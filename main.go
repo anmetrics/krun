@@ -3,251 +3,125 @@ package main
 import (
 	"fmt"
 	"os"
-	"os/exec"
-	"path/filepath"
+	"strconv"
 	"strings"
-	"text/tabwriter"
-	"text/template"
 )
 
-const serviceTemplate = `[Unit]
-Description=krun: {{.Name}}
-After=default.target
+const version = "1.0.0"
 
-[Service]
-Type=simple
-ExecStart={{.Cmd}}
-WorkingDirectory={{.Cwd}}
-Restart=always
-RestartSec=3
-Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-
-[Install]
-WantedBy=default.target
-`
-
-const servicePrefix = "krun-"
-
-func serviceDir() string {
-	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".config", "systemd", "user")
+func usage() {
+	fmt.Print(colorize(bold+cyan, "krun") + colorize(gray, " v"+version) + " — minimal process manager via systemd\n\n")
+	fmt.Println(colorize(bold, "Usage:"))
+	fmt.Println("  krun start <name> --cmd \"<command>\" [options]")
+	fmt.Println("  krun start <config.json>")
+	fmt.Println("  krun stop <name|all>")
+	fmt.Println("  krun restart <name|all>")
+	fmt.Println("  krun reload <name|all>")
+	fmt.Println("  krun remove <name|all>")
+	fmt.Println("  krun list")
+	fmt.Println("  krun info <name>")
+	fmt.Println("  krun logs <name> [--lines N] [--nostream]")
+	fmt.Println("  krun monit")
+	fmt.Println("  krun env <name>")
+	fmt.Println("  krun config <name>")
+	fmt.Println("  krun flush [name|all]")
+	fmt.Println("  krun save")
+	fmt.Println("  krun resurrect")
+	fmt.Println("  krun startup")
+	fmt.Println("  krun unstartup")
+	fmt.Println("  krun reset <name>")
+	fmt.Println()
+	fmt.Println(colorize(bold, "Start options:"))
+	fmt.Println("  --cmd \"<command>\"       Command to run")
+	fmt.Println("  --cwd <path>            Working directory (default: current)")
+	fmt.Println("  --env KEY=VAL           Environment variable (repeatable)")
+	fmt.Println("  --max-memory <size>     Memory limit (e.g. 512M, 1G)")
+	fmt.Println("  --instances <N>         Number of instances")
+	fmt.Println("  --log-file <path>       Redirect stdout to file")
+	fmt.Println("  --error-file <path>     Redirect stderr to file")
+	fmt.Println("  --interpreter <path>    Interpreter (e.g. python3, node)")
+	fmt.Println("  --cron-restart <sched>  Systemd calendar schedule for restart")
+	fmt.Println("  --no-autorestart        Disable auto-restart on crash")
 }
 
-func serviceName(name string) string {
-	return servicePrefix + name + ".service"
+type cliArgs struct {
+	named      map[string]string
+	envList    []string
+	positional []string
 }
 
-func serviceFilePath(name string) string {
-	return filepath.Join(serviceDir(), serviceName(name))
-}
-
-func systemctl(args ...string) error {
-	cmd := exec.Command("systemctl", append([]string{"--user"}, args...)...)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	return cmd.Run()
-}
-
-func ensureLingerEnabled() {
-	uid := fmt.Sprintf("%d", os.Getuid())
-	lingerPath := filepath.Join("/var/lib/systemd/linger", os.Getenv("USER"))
-	if _, err := os.Stat(lingerPath); err != nil {
-		exec.Command("loginctl", "enable-linger", uid).Run()
-	}
-}
-
-func cmdStart(name, command, cwd string) error {
-	if command == "" {
-		return fmt.Errorf("--cmd is required")
-	}
-	if cwd == "" {
-		var err error
-		cwd, err = os.Getwd()
-		if err != nil {
-			return err
-		}
+func parseCLI(args []string) cliArgs {
+	result := cliArgs{
+		named: make(map[string]string),
 	}
 
-	absCwd, err := filepath.Abs(cwd)
-	if err != nil {
-		return fmt.Errorf("invalid cwd: %w", err)
+	singleFlags := map[string]bool{
+		"--no-autorestart": true,
+		"--nostream":       true,
 	}
 
-	if _, err := os.Stat(absCwd); err != nil {
-		return fmt.Errorf("cwd does not exist: %s", absCwd)
-	}
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
 
-	dir := serviceDir()
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		return fmt.Errorf("cannot create service dir: %w", err)
-	}
-
-	data := struct {
-		Name string
-		Cmd  string
-		Cwd  string
-	}{
-		Name: name,
-		Cmd:  command,
-		Cwd:  absCwd,
-	}
-
-	tmpl, err := template.New("service").Parse(serviceTemplate)
-	if err != nil {
-		return err
-	}
-
-	f, err := os.Create(serviceFilePath(name))
-	if err != nil {
-		return fmt.Errorf("cannot create service file: %w", err)
-	}
-	defer f.Close()
-
-	if err := tmpl.Execute(f, data); err != nil {
-		return err
-	}
-
-	ensureLingerEnabled()
-
-	if err := systemctl("daemon-reload"); err != nil {
-		return fmt.Errorf("daemon-reload failed: %w", err)
-	}
-	if err := systemctl("enable", serviceName(name)); err != nil {
-		return fmt.Errorf("enable failed: %w", err)
-	}
-	if err := systemctl("start", serviceName(name)); err != nil {
-		return fmt.Errorf("start failed: %w", err)
-	}
-
-	fmt.Printf("started %s\n", name)
-	return nil
-}
-
-func cmdStop(name string) error {
-	if err := systemctl("stop", serviceName(name)); err != nil {
-		return fmt.Errorf("stop failed: %w", err)
-	}
-	fmt.Printf("stopped %s\n", name)
-	return nil
-}
-
-func cmdRestart(name string) error {
-	if err := systemctl("restart", serviceName(name)); err != nil {
-		return fmt.Errorf("restart failed: %w", err)
-	}
-	fmt.Printf("restarted %s\n", name)
-	return nil
-}
-
-func cmdRemove(name string) error {
-	systemctl("stop", serviceName(name))
-	systemctl("disable", serviceName(name))
-
-	path := serviceFilePath(name)
-	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("cannot remove service file: %w", err)
-	}
-
-	systemctl("daemon-reload")
-	fmt.Printf("removed %s\n", name)
-	return nil
-}
-
-func cmdLogs(name string) error {
-	cmd := exec.Command("journalctl", "--user", "-u", serviceName(name), "-f", "--no-pager", "-o", "cat")
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	return cmd.Run()
-}
-
-func cmdList() error {
-	dir := serviceDir()
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		if os.IsNotExist(err) {
-			fmt.Println("no apps managed by krun")
-			return nil
-		}
-		return err
-	}
-
-	w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
-	fmt.Fprintln(w, "NAME\tSTATUS\tCOMMAND\tCWD")
-
-	for _, entry := range entries {
-		if !strings.HasPrefix(entry.Name(), servicePrefix) || !strings.HasSuffix(entry.Name(), ".service") {
+		if singleFlags[arg] {
+			result.named[arg] = "true"
 			continue
 		}
 
-		name := strings.TrimPrefix(entry.Name(), servicePrefix)
-		name = strings.TrimSuffix(name, ".service")
-
-		status := getStatus(entry.Name())
-		cmd, cwd := parseServiceFile(filepath.Join(dir, entry.Name()))
-
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", name, status, cmd, cwd)
-	}
-
-	w.Flush()
-	return nil
-}
-
-func getStatus(unit string) string {
-	out, err := exec.Command("systemctl", "--user", "is-active", unit).Output()
-	if err != nil {
-		return "inactive"
-	}
-	return strings.TrimSpace(string(out))
-}
-
-func parseServiceFile(path string) (cmd, cwd string) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return "?", "?"
-	}
-	for _, line := range strings.Split(string(data), "\n") {
-		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, "ExecStart=") {
-			cmd = strings.TrimPrefix(line, "ExecStart=")
-		}
-		if strings.HasPrefix(line, "WorkingDirectory=") {
-			cwd = strings.TrimPrefix(line, "WorkingDirectory=")
-		}
-	}
-	if cmd == "" {
-		cmd = "?"
-	}
-	if cwd == "" {
-		cwd = "?"
-	}
-	return
-}
-
-func usage() {
-	fmt.Println(`krun — minimal process manager via systemd
-
-Usage:
-  krun start <name> --cmd "<command>" [--cwd <path>]
-  krun stop <name>
-  krun restart <name>
-  krun remove <name>
-  krun logs <name>
-  krun list`)
-}
-
-func parseFlags(args []string, flags map[string]*string) []string {
-	var positional []string
-	for i := 0; i < len(args); i++ {
-		if ptr, ok := flags[args[i]]; ok {
+		if strings.HasPrefix(arg, "--") {
 			if i+1 < len(args) {
-				*ptr = args[i+1]
+				if arg == "--env" {
+					result.envList = append(result.envList, args[i+1])
+				} else {
+					result.named[arg] = args[i+1]
+				}
 				i++
 				continue
 			}
 		}
-		positional = append(positional, args[i])
+
+		result.positional = append(result.positional, arg)
 	}
-	return positional
+	return result
+}
+
+func buildAppConfig(args cliArgs) AppConfig {
+	app := AppConfig{
+		Cmd:         args.named["--cmd"],
+		Cwd:         args.named["--cwd"],
+		MaxMemory:   args.named["--max-memory"],
+		LogFile:     args.named["--log-file"],
+		ErrorFile:   args.named["--error-file"],
+		Interpreter: args.named["--interpreter"],
+		CronRestart: args.named["--cron-restart"],
+	}
+
+	if len(args.positional) > 0 {
+		app.Name = args.positional[0]
+	}
+	if n := args.named["--name"]; n != "" {
+		app.Name = n
+	}
+
+	if args.named["--no-autorestart"] == "true" {
+		f := false
+		app.AutoRestart = &f
+	}
+
+	if n, err := strconv.Atoi(args.named["--instances"]); err == nil {
+		app.Instances = n
+	}
+
+	if len(args.envList) > 0 {
+		app.Env = make(map[string]string)
+		for _, e := range args.envList {
+			if idx := strings.Index(e, "="); idx > 0 {
+				app.Env[e[:idx]] = e[idx+1:]
+			}
+		}
+	}
+
+	return app
 }
 
 func main() {
@@ -258,72 +132,124 @@ func main() {
 
 	subcmd := os.Args[1]
 	rest := os.Args[2:]
+	args := parseCLI(rest)
+
+	var err error
 
 	switch subcmd {
 	case "start":
-		var cmdFlag, cwdFlag string
-		pos := parseFlags(rest, map[string]*string{
-			"--cmd": &cmdFlag,
-			"--cwd": &cwdFlag,
-		})
-		if len(pos) < 1 {
-			fmt.Fprintln(os.Stderr, "usage: krun start <name> --cmd \"<command>\" [--cwd <path>]")
-			os.Exit(1)
-		}
-		if err := cmdStart(pos[0], cmdFlag, cwdFlag); err != nil {
-			fmt.Fprintln(os.Stderr, "error:", err)
-			os.Exit(1)
+		if len(args.positional) == 1 && strings.HasSuffix(args.positional[0], ".json") {
+			err = cmdStartEcosystem(args.positional[0])
+		} else {
+			app := buildAppConfig(args)
+			err = cmdStart(app)
 		}
 
 	case "stop":
-		if len(rest) < 1 {
-			fmt.Fprintln(os.Stderr, "usage: krun stop <name>")
-			os.Exit(1)
+		name := "all"
+		if len(args.positional) > 0 {
+			name = args.positional[0]
 		}
-		if err := cmdStop(rest[0]); err != nil {
-			fmt.Fprintln(os.Stderr, "error:", err)
-			os.Exit(1)
-		}
+		err = cmdStop(name)
 
 	case "restart":
-		if len(rest) < 1 {
-			fmt.Fprintln(os.Stderr, "usage: krun restart <name>")
-			os.Exit(1)
+		name := "all"
+		if len(args.positional) > 0 {
+			name = args.positional[0]
 		}
-		if err := cmdRestart(rest[0]); err != nil {
-			fmt.Fprintln(os.Stderr, "error:", err)
-			os.Exit(1)
-		}
+		err = cmdRestart(name)
 
-	case "remove":
-		if len(rest) < 1 {
-			fmt.Fprintln(os.Stderr, "usage: krun remove <name>")
-			os.Exit(1)
+	case "reload":
+		name := "all"
+		if len(args.positional) > 0 {
+			name = args.positional[0]
 		}
-		if err := cmdRemove(rest[0]); err != nil {
-			fmt.Fprintln(os.Stderr, "error:", err)
-			os.Exit(1)
-		}
+		err = cmdReload(name)
 
-	case "logs":
-		if len(rest) < 1 {
-			fmt.Fprintln(os.Stderr, "usage: krun logs <name>")
+	case "remove", "delete":
+		if len(args.positional) < 1 {
+			printError("usage: krun remove <name|all>")
 			os.Exit(1)
 		}
-		if err := cmdLogs(rest[0]); err != nil {
-			fmt.Fprintln(os.Stderr, "error:", err)
-			os.Exit(1)
-		}
+		err = cmdRemove(args.positional[0])
 
-	case "list":
-		if err := cmdList(); err != nil {
-			fmt.Fprintln(os.Stderr, "error:", err)
+	case "list", "ls", "status":
+		err = cmdList()
+
+	case "info", "describe", "show":
+		if len(args.positional) < 1 {
+			printError("usage: krun info <name>")
 			os.Exit(1)
 		}
+		err = cmdInfo(args.positional[0])
+
+	case "logs", "log":
+		if len(args.positional) < 1 {
+			printError("usage: krun logs <name> [--lines N] [--nostream]")
+			os.Exit(1)
+		}
+		lines, _ := strconv.Atoi(args.named["--lines"])
+		noStream := args.named["--nostream"] == "true"
+		err = cmdLogs(args.positional[0], lines, noStream)
+
+	case "monit", "monitor", "dash":
+		err = cmdMonit()
+
+	case "env":
+		if len(args.positional) < 1 {
+			printError("usage: krun env <name>")
+			os.Exit(1)
+		}
+		err = cmdEnv(args.positional[0])
+
+	case "config":
+		if len(args.positional) < 1 {
+			printError("usage: krun config <name>")
+			os.Exit(1)
+		}
+		err = cmdShowConfig(args.positional[0])
+
+	case "flush":
+		name := ""
+		if len(args.positional) > 0 {
+			name = args.positional[0]
+		}
+		err = cmdFlush(name)
+
+	case "save":
+		err = cmdSave()
+
+	case "resurrect":
+		err = cmdResurrect()
+
+	case "startup":
+		err = cmdStartup()
+
+	case "unstartup":
+		err = cmdUnstartup()
+
+	case "reset":
+		if len(args.positional) < 1 {
+			printError("usage: krun reset <name>")
+			os.Exit(1)
+		}
+		err = cmdReset(args.positional[0])
+
+	case "version", "-v", "--version":
+		fmt.Println("krun v" + version)
+
+	case "help", "-h", "--help":
+		usage()
 
 	default:
-		fmt.Fprintf(os.Stderr, "unknown command: %s\n", subcmd)
+		printError("unknown command: %s", subcmd)
+		fmt.Println()
 		usage()
+		os.Exit(1)
+	}
+
+	if err != nil {
+		printError("%v", err)
 		os.Exit(1)
 	}
 }
