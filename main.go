@@ -148,71 +148,71 @@ func main() {
 	case "stop":
 		name := "all"
 		if len(args.positional) > 0 {
-			name = args.positional[0]
+			name = resolveName(args.positional[0])
 		}
 		err = cmdStop(name)
 
 	case "restart":
 		name := "all"
 		if len(args.positional) > 0 {
-			name = args.positional[0]
+			name = resolveName(args.positional[0])
 		}
 		err = cmdRestart(name)
 
 	case "reload":
 		name := "all"
 		if len(args.positional) > 0 {
-			name = args.positional[0]
+			name = resolveName(args.positional[0])
 		}
 		err = cmdReload(name)
 
 	case "remove", "delete":
 		if len(args.positional) < 1 {
-			printError("usage: krun remove <name|all>")
+			printError("usage: krun remove <name|id|all>")
 			os.Exit(1)
 		}
-		err = cmdRemove(args.positional[0])
+		err = cmdRemove(resolveName(args.positional[0]))
 
 	case "list", "ls", "status":
 		err = cmdList()
 
 	case "info", "describe", "show":
 		if len(args.positional) < 1 {
-			printError("usage: krun info <name>")
+			printError("usage: krun info <name|id>")
 			os.Exit(1)
 		}
-		err = cmdInfo(args.positional[0])
+		err = cmdInfo(resolveName(args.positional[0]))
 
 	case "logs", "log":
 		if len(args.positional) < 1 {
-			printError("usage: krun logs <name> [--lines N] [--nostream]")
+			printError("usage: krun logs <name|id> [--lines N] [--nostream]")
 			os.Exit(1)
 		}
 		lines, _ := strconv.Atoi(args.named["--lines"])
 		noStream := args.named["--nostream"] == "true"
-		err = cmdLogs(args.positional[0], lines, noStream)
+		err = cmdLogs(resolveName(args.positional[0]), lines, noStream)
 
 	case "monit", "monitor", "dash":
 		err = cmdMonit()
 
 	case "env":
 		if len(args.positional) < 1 {
-			printError("usage: krun env <name>")
+			printError("usage: krun env <name|id>")
 			os.Exit(1)
 		}
-		err = cmdEnv(args.positional[0])
+		err = cmdEnv(resolveName(args.positional[0]))
 
 	case "config":
 		if len(args.positional) < 1 {
-			printError("usage: krun config <name>")
+			printError("usage: krun config <name|id>")
 			os.Exit(1)
 		}
-		err = cmdShowConfig(args.positional[0])
+		err = cmdShowConfig(resolveName(args.positional[0]))
 
 	case "flush":
 		name := ""
 		if len(args.positional) > 0 {
-			name = args.positional[0]
+			name = resolveName(args.positional[0])
 		}
 		err = cmdFlush(name)
 
@@ -230,10 +230,10 @@ func main() {
 
 	case "reset":
 		if len(args.positional) < 1 {
-			printError("usage: krun reset <name>")
+			printError("usage: krun reset <name|id>")
 			os.Exit(1)
 		}
-		err = cmdReset(args.positional[0])
+		err = cmdReset(resolveName(args.positional[0]))
 
 	case "version", "-v", "--version":
 		fmt.Println("krun v" + version)
