@@ -30,6 +30,14 @@ func cmdStart(app AppConfig) error {
 	}
 	app.Cwd = absCwd
 
+	if app.LogDir != "" {
+		absLogDir, err := filepath.Abs(app.LogDir)
+		if err != nil {
+			return fmt.Errorf("invalid log-dir: %w", err)
+		}
+		app.LogDir = absLogDir
+	}
+
 	instances := app.Instances
 	if instances <= 1 {
 		instances = 1

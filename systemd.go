@@ -17,7 +17,11 @@ After=default.target
 
 [Service]
 Type=simple
+{{- if .LogDir}}
+ExecStart=/bin/bash -c 'mkdir -p {{.LogDir}} && exec {{.ExecCmd}} >>{{.LogDir}}/{{.Name}}-$(date +%%Y-%%m-%%d).log 2>>{{.LogDir}}/{{.Name}}-$(date +%%Y-%%m-%%d)-error.log'
+{{- else}}
 ExecStart=/bin/bash -c 'exec {{.ExecCmd}}'
+{{- end}}
 WorkingDirectory={{.Cwd}}
 {{- if .AutoRestart}}
 Restart=always
@@ -31,10 +35,10 @@ Environment="{{.}}"
 {{- if .MaxMemory}}
 MemoryMax={{.MaxMemory}}
 {{- end}}
-{{- if .LogFile}}
+{{- if and .LogFile (not .LogDir)}}
 StandardOutput=append:{{.LogFile}}
 {{- end}}
-{{- if .ErrorFile}}
+{{- if and .ErrorFile (not .LogDir)}}
 StandardError=append:{{.ErrorFile}}
 {{- end}}
 Environment="PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
@@ -71,6 +75,7 @@ type serviceData struct {
 	MaxMemory   string
 	LogFile     string
 	ErrorFile   string
+	LogDir      string
 }
 
 func userServiceDir() string {
@@ -176,6 +181,7 @@ func generateServiceFile(app AppConfig) error {
 		MaxMemory:   app.MaxMemory,
 		LogFile:     app.LogFile,
 		ErrorFile:   app.ErrorFile,
+		LogDir:      app.LogDir,
 	}
 
 	tmpl, err := template.New("service").Parse(serviceTemplateSrc)

@@ -15,6 +15,7 @@ type AppConfig struct {
 	Instances   int               `json:"instances,omitempty"`
 	LogFile     string            `json:"log_file,omitempty"`
 	ErrorFile   string            `json:"error_file,omitempty"`
+	LogDir      string            `json:"log_dir,omitempty"`
 	Interpreter string            `json:"interpreter,omitempty"`
 	CronRestart string            `json:"cron_restart,omitempty"`
 	AutoRestart *bool             `json:"auto_restart,omitempty"`

@@ -39,6 +39,7 @@ func usage() {
 	fmt.Println("  --instances <N>         Number of instances")
 	fmt.Println("  --log-file <path>       Redirect stdout to file")
 	fmt.Println("  --error-file <path>     Redirect stderr to file")
+	fmt.Println("  --log-dir <path>        Log directory (daily rotation: name-YYYY-MM-DD.log)")
 	fmt.Println("  --interpreter <path>    Interpreter (e.g. python3, node)")
 	fmt.Println("  --cron-restart <sched>  Systemd calendar schedule for restart")
 	fmt.Println("  --no-autorestart        Disable auto-restart on crash")
@@ -92,6 +93,7 @@ func buildAppConfig(args cliArgs) AppConfig {
 		MaxMemory:   args.named["--max-memory"],
 		LogFile:     args.named["--log-file"],
 		ErrorFile:   args.named["--error-file"],
+		LogDir:      args.named["--log-dir"],
 		Interpreter: args.named["--interpreter"],
 		CronRestart: args.named["--cron-restart"],
 	}

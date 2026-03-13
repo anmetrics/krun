@@ -28,6 +28,7 @@ krun start worker --cmd "python worker.py" \
   --instances 3 \
   --log-file /var/log/worker.log \
   --error-file /var/log/worker.err \
+  --log-dir /srv/worker/logs \
   --interpreter python3 \
   --cron-restart daily \
   --no-autorestart
@@ -66,6 +67,20 @@ krun env api
 
 # Show app config as JSON
 krun config api
+```
+
+### Daily Log Rotation
+
+```bash
+# Start with daily log rotation (logs saved by date)
+krun start api --cmd "node server.js" --log-dir /srv/api/logs
+
+# Creates files like:
+#   /srv/api/logs/api-2026-03-13.log
+#   /srv/api/logs/api-2026-03-13-error.log
+#
+# New log file is created each day automatically.
+# --log-dir overrides --log-file/--error-file when both are set.
 ```
 
 ### Logs
@@ -133,7 +148,8 @@ Create `ecosystem.json`:
       "cmd": "python worker.py",
       "cwd": "/srv/worker",
       "interpreter": "python3",
-      "auto_restart": true
+      "auto_restart": true,
+      "log_dir": "/srv/worker/logs"
     }
   ]
 }
@@ -156,7 +172,7 @@ Then: `krun start ecosystem.json`
 - Generates systemd user service files at `~/.config/systemd/user/krun-<name>.service`
 - `Restart=always` with 3s delay for crash recovery
 - `loginctl enable-linger` for boot persistence
-- Logs via `journalctl` (no custom log daemon)
+- Logs via `journalctl` or daily file rotation with `--log-dir`
 - App configs saved at `~/.config/krun/apps.json`
 - Memory limits via systemd `MemoryMax`
 - Cron restart via systemd timers
