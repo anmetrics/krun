@@ -485,6 +485,23 @@ func resolveUnits(name string) []string {
 	return matches
 }
 
+// resolveName converts an index (e.g. "0", "1") to app name, or returns as-is
+func resolveName(nameOrIndex string) string {
+	if nameOrIndex == "all" {
+		return "all"
+	}
+	idx, err := strconv.Atoi(nameOrIndex)
+	if err != nil {
+		return nameOrIndex
+	}
+	units := listKrunUnits()
+	if idx < 0 || idx >= len(units) {
+		printError("index %d out of range (0-%d)", idx, len(units)-1)
+		os.Exit(1)
+	}
+	return unitToAppName(units[idx])
+}
+
 func forEachUnit(fn func(string) error) error {
 	units := listKrunUnits()
 	if len(units) == 0 {
